@@ -284,7 +284,7 @@ function getSearchBasedResutls(req,res){
     })
 }
 
-function getAvailableOffers(req,res){
+/*function getAvailableOffers(req,res){
     key= req.params.username+'-count';
     client.get(key,(err,data)=>{
         if (err) throw err;
@@ -314,6 +314,7 @@ function getAvailableOffers(req,res){
         }
     })
 }
+*/
 
 app.get('/movie/:name',cache, getMoviebyTitle);
 
@@ -335,7 +336,7 @@ app.get('/userpreference/:username',cache, getMoviebyPreference);
 
 app.get('/search/:username',getSearchBasedResutls);
 
-app.get('/availableoffers/:username', getAvailableOffers)
+// app.get('/availableoffers/:username', getAvailableOffers)
 
 
 
