@@ -10,7 +10,7 @@ const neo4j = require('neo4j-driver');
 
 const Movies = require ('./movies')
 
-
+// mongo connection using mongoose library
 mongoose.connect("mongodb://localhost:27017/Movies", {
     useNewUrlParser: true,
     useUnifiedTopology : true
@@ -19,8 +19,8 @@ mongoose.connect("mongodb://localhost:27017/Movies", {
 const PORT = process.env.PORT || 5000;
 
 const REDIS_PORT = process.env.PORT || 6379;
-const client = redis.createClient(REDIS_PORT);
-const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet'));
+const client = redis.createClient(REDIS_PORT); // redis connection 
+const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
 const session = driver.session();
 const app = express();
 // Enable express to parse body data from raw application/json data
@@ -30,12 +30,13 @@ app.use(bodyParser.urlencoded({ extended: false }));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-    async function getMoviebyTitle(req,res) {
+ async function getMoviebyTitle(req,res) {
         try{
              const result = [];
-            //const { username } = req.params.username;
+            
             const searchkey = req.params.name;
             console.log("Fetching Movie by Title"+ searchkey);
+            //finding movie details from mongo
             Movies.find({"title" : { "$regex": searchkey , "$options": "i" }}, function(err, items){
                 var movie = [];
                 var z = "";
@@ -47,14 +48,11 @@ app.use(express.static(path.join(__dirname, 'public')));
                     z= items[i].title;
                     if (req.params.username){
                     key = req.params.username +  '-searched';
-                    client.smembers(key, (err ,data)=>{
-                        if (err) throw err;
-                        else{
-                            client.sadd(key,JSON.stringify(z) );
-                        }
-                     }    
-                 ) 
+                    searchcount = req.params.username +  '-count';
+                    client.sadd(key,JSON.stringify(z) );//setting the search result for a particular user in redis
+                    client.incr(searchcount );
                 }}
+                    //searching related movies using gerne and director in neo4j
                     session.run('MATCH (m:movie) WHERE m.name = $title OPTIONAL MATCH (m)-[:Belong_To]->()<-[:Belong_To]-(x) WITH m, COLLECT(x) AS xs OPTIONAL MATCH (m)<-[:Directed]-()-[:Directed]->(y) WITH m, xs, COLLECT(y) AS ys UNWIND (xs + ys) AS otherMovie RETURN otherMovie',
                         { title:searchkey}
                         
@@ -62,12 +60,12 @@ app.use(express.static(path.join(__dirname, 'public')));
                         
                         .then(function (recommendations) {
                             recommendations.records.forEach(function(record){
-                              //console.log("record._fields[0].properties = ",record._fields[0].properties.name);
+                         
                                 result.push(record._fields[0].properties.name);  
                             })
                             console.log(result);
                             var y = [movie , result];
-                            client.setex ( x,600, JSON.stringify(y));
+                            client.setex ( x,600, JSON.stringify(y)); // storing data in redis
                             res.json(y);
                             })
                         .catch(function(error){
@@ -87,21 +85,6 @@ async function getMoviebyActor(req,res) {
         const searchkey = req.params.name;
         console.log(searchkey);
         
-        /* Movies.find({"actor.name" : { "$regex": searchkey , "$options": "i" } }, function(err, items){
-            
-            var movie = [];
-            for (var i = 0 ; i < items.length ; i++){
-              movie.push(items[i]);
-            }
-            console.log(movie);
-            
-            //store data in redis as cache
-
-            client.setex (title,3600, JSON.stringify(movie));
-
-            res.json(movie);
-            
-          })  */
           const movies =[];
           session.run("Match (a:actor) where a.name = $actor match (a)-[:Acted_In]-(x) with COLLECT(x) as xs UNWIND (xs) as movies Return movies",
           { actor: searchkey }
@@ -109,7 +92,6 @@ async function getMoviebyActor(req,res) {
           )
               .then(function (results) {
             results.records.forEach(function(record){
-             //console.log("record._fields[0].properties = ",record._fields[0].properties.name);
             movies.push(record._fields[0].properties.name);        
               })
               console.log("Data is fetched from Neo4j");
@@ -117,7 +99,9 @@ async function getMoviebyActor(req,res) {
               console.log(movies);
               client.setex ( x,600, JSON.stringify(movies));
               if (req.params.username){
-                key = req.params.username +  '-searched'
+                key = req.params.username +  '-searched';
+                searchcount = req.params.username +  '-count'
+                client.incr(searchcount );
                   movies.forEach(element => {
                     client.sadd(key,JSON.stringify(element) );
                        });
@@ -140,26 +124,9 @@ async function getMoviebyDirector(req,res) {
     try{
         console.log("Fetching Data via Director..");
 
-        //const { username } = req.params.username;
         const searchkey = req.params.name;
         console.log(searchkey);
-        
-
-     /*  Movies.find({"director" : { "$regex": searchkey , "$options": "i" } }, function(err, items){
-            
-            var movie = [];
-            for (var i = 0 ; i < items.length ; i++){
-              movie.push(items[i]);
-            }
-            console.log(movie);
-            
-            //store data in redis as cache
-
-            client.setex (searchkey, 3600 ,JSON.stringify(movie));
-
-            res.json(movie);
-            
-          })  */ 
+    
           const movies =[];
           session.run("Match (d:director) where d.name = $director match (d)-[:Directed]-(x) with COLLECT(x) as xs UNWIND (xs) as movies Return movies",
           { director: searchkey }
@@ -176,7 +143,10 @@ async function getMoviebyDirector(req,res) {
               client.setex ( x,600, JSON.stringify(movies));
               
               if (req.params.username){
-                key = req.params.username +  '-searched'
+                key = req.params.username +  '-searched';
+                searchcount = req.params.username +  '-count';
+                client.incr(searchcount );
+
                   movies.forEach(element => {
                     client.sadd(key,JSON.stringify(element) );
                        });
@@ -201,24 +171,6 @@ async function getMoviebyGenre(req,res) {
         const searchkey = req.params.name;
         console.log(searchkey);
         
-/*
-        Movies.find({"genre" : { "$regex": searchkey , "$options": "i" } }, function(err, items){
-            
-            var movie = [];
-            for (var i = 0 ; i < items.length ; i++){
-              movie.push(items[i].title);
-            }
-            console.log(movie);
-            
-            //store data in redis as cache
-
-            client.setex (searchkey,3600, JSON.stringify(movie));
-
-            res.json(movie);
-            
-          })  
-
-    }*/
     const movies =[];
 
         session.run("Match (g:genre) where g.name = $genre match (g)-[:Belong_To]-(x) with COLLECT(x) as xs UNWIND (xs) as movies Return movies",
@@ -240,6 +192,8 @@ async function getMoviebyGenre(req,res) {
             client.setex ( x,600, JSON.stringify(movies));
             if (req.params.username){
                 key = req.params.username +  '-searched'
+                searchcount = req.params.username +  '-count'
+                client.incr(searchcount );
                   movies.forEach(element => {
                     client.sadd(key,JSON.stringify(element) );
                        });
@@ -295,8 +249,7 @@ async function getMoviebyPreference(req,res) {
 function cache(req, res, next){
     
     var searchkey=[];
-    //const searchkey = req.params.name || req.params.username ;
-    //const x = searchkey+'recom';
+    
     if (!req.params.name){
         searchkey=req.params.username
         console.log(searchkey);   
@@ -331,12 +284,44 @@ function getSearchBasedResutls(req,res){
     })
 }
 
+function getAvailableOffers(req,res){
+    key= req.params.username+'-count';
+    client.get(key,(err,data)=>{
+        if (err) throw err;
+        if (data){
+            count= data;
+            console.log(data);
+            if (data == 5){
+                session.run('MATCH (a:username),(b:promotion) WHERE a.name = $username AND b.OnCount = $count CREATE (b)-[r:Available_For]->(a) RETURN b ',
+                { username: req.params.username,
+                count : count  }
+                
+                )
+                
+                    .then(function (result) {
+                    recommendations.records.forEach(function(record){
+                    console.log("record._fields[0].properties = ",record._fields[0].properties.name);
+                     result.push(record._fields[0].properties.name);   
+                    })
+                    console.log(result);
+                    console.log(result);
+                    res.json(result);
+                    })
+                    .catch(function(error){
+                    console.log(error);
+                })  
+            }
+        }
+    })
+}
 
 app.get('/movie/:name',cache, getMoviebyTitle);
 
 app.get('/:username/movie/:name',cache, getMoviebyTitle);
 
 app.get('/movie/actor/:name', getMoviebyActor);
+
+app.get('/:username/actor/:name',cache, getMoviebyActor);
 
 app.get('/movie/genre/:name',cache, getMoviebyGenre) ;
 
@@ -349,6 +334,8 @@ app.get('/:username/director/:name',cache, getMoviebyDirector);
 app.get('/userpreference/:username',cache, getMoviebyPreference);
 
 app.get('/search/:username',getSearchBasedResutls);
+
+app.get('/availableoffers/:username', getAvailableOffers)
 
 
 
