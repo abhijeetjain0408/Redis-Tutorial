@@ -286,23 +286,23 @@ function getAvailableOffers(req,res){
     })
 }
 
-// A user can add movies to wishlist.(Raj)
 async function addMoviestoUserlist(req,res) {
     try{
-        console.log("Adding movie to wishlist using Neo4j...");
-        const searchkey = req.params.name;
-        const moviename = req.params.title;
-        results = true;
-        console.log(searchkey);
-        console.log(moviename);
-        session.run('MATCH (a:Movie), (b:us_name) WHERE a.name = $movietitle AND b.email = $username MERGE (a)-[r: IN_Wishlist]->(b) ON CREATE SET r.alreadyExisted=false  ON MATCH SET r.alreadyExisted=true RETURN r.alreadyExisted',
-            {   username: searchkey,
-                movietitle : moviename
-            }
-        ).then(function (relationshipexist) {
-                results = relationshipexist;                
-                res.json(results);
-            }).catch(function(error){
+            console.log("Adding movie to wishlist using Neo4j...");
+            const searchkey = req.params.name;
+            const moviename = req.params.title;
+            results = true;
+            console.log(searchkey);
+            console.log(moviename);
+            session.run('MATCH (a:Movie), (b:us_name) WHERE a.name = $movietitle AND b.email = $username MERGE (a)-[r: IN_Wishlist]->(b) ON CREATE SET r.alreadyExisted=false  ON MATCH SET r.alreadyExisted=true RETURN r.alreadyExisted',
+                {   username: searchkey,
+                    movietitle : moviename
+                }
+            ).then(function (relationshipexist) 
+                {
+                    results = relationshipexist;                
+                    res.json(results);
+                }).catch(function(error){
                     console.log(error);
                 }) 
     }
@@ -312,7 +312,7 @@ async function addMoviestoUserlist(req,res) {
     }
 }
 
-app.get('/movie/:name/:title', addMoviestoUserlist);
+app.get('/movie/:name/:title', addMoviestoUserlist); // Add movies to wishlist, will show movies added by other users
 
 app.get('/movie/:name',cache, getMoviebyTitle); // for searching movie by title 
 
