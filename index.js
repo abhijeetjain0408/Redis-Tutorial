@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 
 const REDIS_PORT = process.env.PORT || 6379;
 const redisclient = redis.createClient(REDIS_PORT); // redis connection 
-const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
+const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('raj', '1234')); //neo4j connection
 const session = driver.session();
 const app = express();
 // Enable express to parse body data from raw application/json data
@@ -321,6 +321,199 @@ function getAvailableOffers(req,res){
     })
 }
 
+async function addMoviestoUserlist(req,res) {
+    try{
+            console.log("Adding movie to wishlist using Neo4j...");
+            const searchkey = req.params.email;
+            const moviename = req.params.title;
+            const listofmovie =[];
+            console.log(searchkey);
+            console.log(moviename);         
+            session.run('MATCH (a:Movie), (b:us_name) WHERE a.name = $movietitle AND b.email = $username MERGE (a)-[r: IN_Wishlist]->(b) return a',
+                {   username: searchkey,
+                    movietitle : moviename
+                }
+            ).then(function (movie) 
+                {                    
+                    movie.records.forEach(function(record){                    
+                    listofmovie.push(record._fields[0].properties.name);   
+                })                
+                if(listofmovie.length > 0){
+                    console.log(listofmovie[0], "  Movie has been added to your wishlist");                
+                    res.json(listofmovie[0]);
+                }
+                else{
+                    console.log("Please check if the username and movie entered are correct or check your wish list if movie is already present");
+                }
+                
+            })
+        .catch(function(error)
+        {
+            console.log(error);
+        }) 
+    }
+    catch(err)
+    {
+        console.error(err);
+        res.status(500);
+    }
+}
+
+async function fetchmoviesfromlist(req,res) {
+    try{
+            console.log("Fetching movie from wishlist using Neo4j...");
+            const username = req.params.checkname;            
+            const listofmovie =[];
+            const recommendedmovies = [];             
+            session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email= $name1 RETURN distinct p',
+            {   
+                name1: username,                
+            }
+            ).then(function (movies) 
+                {                    
+                    movies.records.forEach(function(record){                    
+                    listofmovie.push(record._fields[0].properties.name);   
+                })                
+                if(listofmovie.length > 0){
+                    console.log("Your wish list contains: ",listofmovie);                
+                    res.json(listofmovie);
+                    session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email <> $name1 RETURN distinct p.name as movie',
+                        {   
+                            name1: username,                    
+                        }).then(function (valueofp) 
+                        {                           
+                            valueofp.records.forEach(function(record){                    
+                            recommendedmovies.push(record._fields[0]);   
+                        })                
+                            console.log("Check what movies others have added to their wishlist: ",recommendedmovies);                                                               
+                        }).catch(function(error)
+                        {
+                            console.log(error);
+                        })
+                }
+                else{
+                    console.log("Please check if the username and movie entered are correct");
+                    session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email <> $name1 RETURN distinct p.name as movie',
+                        {   
+                            name1: username,                    
+                        }).then(function (valueofp) 
+                        {                           
+                            valueofp.records.forEach(function(record){                    
+                            recommendedmovies.push(record._fields[0]);   
+                        })                
+                            console.log("Check what others have added to their wishlist: ",recommendedmovies);                                                               
+                        }).catch(function(error)
+                        {
+                            console.log(error);
+                        })
+                }
+                
+            })
+        .catch(function(error)
+        {
+            console.log(error);
+        }) 
+    }
+    catch(err)
+    {
+        console.error(err);
+        res.status(500);
+    }
+}
+
+async function requesttoFollow(req,res) {
+    try
+    {
+        console.log("Requesting to follow a user using Neo4j...");
+        const username1 = req.params.checkname1;
+        const username2 = req.params.checkname2;
+        const useremail = [];                                            
+        session.run('MATCH (a:us_name), (b:us_name) WHERE a.email= $name1 AND b.email = $name2 MERGE (a)-[: Follows]->(b) RETURN a' ,
+        {   name1: username1,
+            name2: username2
+        }).then(function (checkemail) 
+            {
+                checkemail.records.forEach(function(record)
+                {                    
+                    useremail.push(record._fields[0].properties.email);   
+                })                
+                if (useremail == username1)
+                {
+                    console.log(useremail[0]," Accepted your follow request.");                                    
+                }
+                else
+                {
+                    console.log("Please check the username again.");
+                }                
+            }).catch(function(error)
+            {
+                console.log(error);
+            }) 
+    }
+    catch(err)
+    {
+        console.error(err);
+        res.status(500);
+    }
+}
+
+async function followUser(req,res) {
+    try{
+            console.log("Fetch movies from wishlist of a user whom you follow using Neo4j...");
+            const username1 = req.params.checkname1;
+            const username2 = req.params.checkname2;
+            const realtionshipexists =[];
+            const movierelationship =[];
+            console.log(username1);
+            console.log(username2);
+            session.run('MATCH (p)-[r:Follows]->(n) where p.email=$name1 and n.email=$name2 Return r',
+                {   name1: username1,
+                    name2 : username2
+                }
+            ).then(function (valueofr) 
+                {
+                    valueofr.records.forEach(function(record){                    
+                    realtionshipexists.push(record._fields[0].type);   
+                })                
+                    console.log(realtionshipexists[0]); 
+                    if(realtionshipexists[0] == "Follows"){                        
+                        session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email=$name1 Return p limit(5)',
+                        {   
+                            name1: username1,                    
+                        }).then(function (valueofp) 
+                        {                            
+                            valueofp.records.forEach(function(record){                    
+                            movierelationship.push(record._fields[0].properties.name);   
+                        })                
+                            console.log(movierelationship);                                   
+                            res.json(movierelationship);
+                        }).catch(function(error)
+                        {
+                            console.log(error);
+                        })
+                    }
+                    else{
+                        console.log("Please check the username and follow the user to view his/her wishlist");
+                    }                                                 
+            }).catch(function(error)
+            {
+                console.log(error);
+            })                        
+    }
+    catch(err)
+    {
+        console.error(err);
+        res.status(500);
+    }
+}
+
+app.get('/viewwishlist/:checkname', fetchmoviesfromlist);
+
+app.get('/requestingtofollow/:checkname1/:checkname2', requesttoFollow); // A user can follow other user.
+
+app.get('/fetchmoviesofotheruser/:checkname1/:checkname2', followUser); // Once two users are following each other they can see what movies the other user has added to their wish list.
+
+app.get('/movie/:email/:title', addMoviestoUserlist); // Add movies to wishlist, Also show movies added by other users.
 
 function getTopMovies(req,res){
     trending = [];
