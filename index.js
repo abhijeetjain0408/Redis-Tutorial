@@ -10,8 +10,7 @@ const Movies = require ('./movies'); // importing movies schema
 // mongo connection using mongoose library
 mongoose.connect("mongodb://localhost:27017/Movies", {
     useNewUrlParser: true,
-    useUnifiedTopology : true
-  });
+    useUnifiedTopology : true});
 
 const PORT = process.env.PORT || 5000;
 
@@ -27,14 +26,14 @@ app.use(bodyParser.urlencoded({ extended: false }));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
- async function getMoviebyTitle(req,res) {
+async function getMoviebyTitle(req,res) {
         try{
-             const result = [];
-            
+            const result = [];
             const searchkey = req.params.name;
-            console.log("Fetching Movie by Title"+ searchkey);
+            console.log("Fetching Movie by Title "+ searchkey);
             //finding movie details from mongo
             Movies.find({"title" : { "$regex": searchkey , "$options": "i" }}, function(err, items){
+              if (items.length !== 0 ){
                 var movie = [];
                 var z = "";
                 var x = searchkey ;
@@ -44,13 +43,13 @@ app.use(express.static(path.join(__dirname, 'public')));
                   console.log(movie);
                   z= items[i].title;
                   if (req.params.username){
-                  key = req.params.username +  '-searched';
-                  searchcount = req.params.username +  '-count';
-                  redisclient.sadd(key,JSON.stringify(z) );//setting the search result for a particular user in redis for search history
-                  redisclient.incr(searchcount ); // setting the search count for a user in redis for offers
-                }}
+                    key = req.params.username +  '-searched';
+                    searchcount = req.params.username +  '-count';
+                    redisclient.sadd(key,JSON.stringify(z) );//setting the search result for a particular user in redis for search history
+                    redisclient.incr(searchcount ); // setting the search count for a user in redis for offers
+                    }}
                     //getting movie recommendation with the searched movie's genre and director from neo4j
-                  session.run('MATCH (m:movie) WHERE m.name = $title OPTIONAL MATCH (m)-[:Belong_To]->()<-[:Belong_To]-(x) WITH m, COLLECT(x) AS xs OPTIONAL MATCH (m)<-[:Directed]-()-[:Directed]->(y) WITH m, xs, COLLECT(y) AS ys UNWIND (xs + ys) AS otherMovie RETURN otherMovie',
+                session.run('MATCH (m:movie) WHERE m.name = $title SET  m.searchcount= m.searchcount+ 1 WITH m OPTIONAL MATCH (m)-[:Belong_To]->()<-[:Belong_To]-(x) WITH m, COLLECT(x) AS xs OPTIONAL MATCH (m)<-[:Directed]-()-[:Directed]->(y) WITH m, xs, COLLECT(y) AS ys UNWIND (xs + ys) AS otherMovie RETURN otherMovie',
                             { title:searchkey}
                         )
                         
@@ -67,6 +66,9 @@ app.use(express.static(path.join(__dirname, 'public')));
                             console.log(error);
                         })   
                   }
+                if(items.length=== 0){
+                    res.send("Invalid search key");
+                }}
               )   
         }
         catch(err){
@@ -204,6 +206,7 @@ async function getMoviebyPreference(req,res) {
         
                 .then(function (recommendations) {
                     recommendations.records.forEach(function(record){
+                        console.log(recommendations);
                         //console.log("record._fields[0].properties = ",record._fields[0].properties.name);
                         result.push(record._fields[0].properties.name);   
                     })
@@ -231,7 +234,7 @@ function cache(req, res, next){
         console.log(searchkey);   
     }
     else if(req.params.name) {
-        searchkey = req.params.name;//setting search key for cache search
+        searchkey = req.params.name; //setting search key for cache search
         console.log(searchkey);
     }
     movies = [];
@@ -240,11 +243,20 @@ function cache(req, res, next){
             if (err) throw err;
             if (data !== null){
                 console.log(" Data is coming from redis"); 
-                console.log(JSON.parse(data));
+                session.run('MATCH (m:movie) WHERE m.name = $title SET  m.searchcount= m.searchcount+ 1 ',
+                {title : searchkey})
+                .then(function (result) {
+                    
+                })
+                .catch(function(error){
+                console.log(error);
+                })
+                
+                //console.log(JSON.parse(data));
                 result = JSON.parse(data); 
                 res.json(result);
             }else{
-                next();  // calling next function in the api if no result found in redis cache for the search 
+                next();  // calling next function in the api if no result found in redis for the search 
             }})     
     }
 
@@ -256,57 +268,90 @@ function getSearchBasedResutls(req,res){
         if (data){
             res.json(data);
         }
+        if(!data){
+            res.send('You dont have any search history');
+        }
 
     })
 }
 
 function getAvailableOffers(req,res){
     key= req.params.username+'-count';
-    offers = [];
+    
     redisclient.get(key,(err,data)=>{ //getting the search count performed by the user
         if (err) throw err;
+        if(data === null){
+            res.send("No offers Available");
+        }
+        data= parseInt(data);
         if (data){
-            console.log(data);
-            // creating a relationship between the user and the offer based on search count
-            session.run("MATCH (a:username),(b:promotion) WHERE a.name = $username AND b.OnCount <= $count AND b.Status = 'Unused' MERGE (b)-[r:Available_For]->(a) RETURN b ",
+            if( 5<= data <10 ){
+                offername = "free lunch coupons";
+            }
+            else if( 10<= data <50){
+                offername = "free movie tickets";
+            }
+            // creating offer for user based on search count
+            session.run("Match (u:username) where u.name = $username Merge (p:promotion {name:$offer})-[:Available_For]-> (u) on create SET p.offercode = apoc.text.random(7,'A-Za-z0-9') ",
                     { username: req.params.username,
-                     count : neo4j.int(data) }
+                     offer: offername }
                         )
                     .then(function (result) {
-                        result.records.forEach(function(record){
-                            offers.push(record._fields[0].properties.name); //storing the result in offers array
-                        })
-                        console.log(offers);
-                        res.json(offers);
+                        offerlist = [];
+                        session.run(" Match ( u: username) where u.name = $username Match (u)-[:Available_For]-(x) Return x",
+                        { username: req.params.username }
+                                )
+                                .then (function (offers){
+                                    offers.records.forEach(function(record){
+                                        offerlist.push(record._fields[0].properties);
+                                    })
+                                    res.json(offerlist);
+                       
+                                })
+                                .catch(function(error){
+                                    console.log(error);
+                                })
+                        
                     })
                     .catch(function(error){
                     console.log(error);
                     })  
         }
+        
     })
 }
 
 
-app.get('/movie/:name',cache, getMoviebyTitle); // for searching movie by title 
+function getTopMovies(req,res){
+    trending = [];
+    session.run("MATCH (m:movie) RETURN m ORDER BY m.searchcount DESC LIMIT 10 ",
+        )
+    .then(function (result) {
+        result.records.forEach(function(record){
+            trending.push(record._fields[0].properties.name); //storing the result in trending array
+        })
+        //console.log(offers);
+        res.json(trending);
+    })
+    .catch(function(error){
+    console.log(error);
+    }) 
+}
+
+
+
+app.get('/movie/title/:name',cache, getMoviebyTitle); // for searching movie by title 
+app.get('/movie/actor/:name',cache, getMoviebyActor);// for searching movies by actor
+app.get('/movie/genre/:name',cache, getMoviebyGenre) ; // for searching movies by genre
+app.get('/movie/director/:name',cache, getMoviebyDirector);// for searching movies by director
+app.get('/movie/top10',getTopMovies);//for getting top searched movies across the globe on the application 
 
 app.get('/:username/movie/:name',cache, getMoviebyTitle);// for searching movie by title for a registered user
-
-app.get('/movie/actor/:name', getMoviebyActor);// for searching movies by actor
-
 app.get('/:username/actor/:name',cache, getMoviebyActor);// for searching movies by actor for a registered user
-
-app.get('/movie/genre/:name',cache, getMoviebyGenre) ; // for searching movies by genre
-
 app.get('/:username/genre/:name',cache, getMoviebyGenre); // for searching movies by genre for a registered user
-
-app.get('/movie/director/:name',cache, getMoviebyDirector);// for searching movies by director name
-
 app.get('/:username/director/:name',cache, getMoviebyDirector);// for searching movies by director for a registered user
-
-app.get('/userpreference/:username',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
-
-app.get('/search/:username',getSearchBasedResutls); // for getting the movie list based on search history of the user
-
+app.get('/:username/userpreference',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
+app.get('/:username/search',getSearchBasedResutls); // for getting the movie list based on search history of the user
 app.get('/:username/availableoffers', getAvailableOffers) // for getting the list of the offers available for the user
 
 

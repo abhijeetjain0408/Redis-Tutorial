@@ -1,5 +1,11 @@
 var Movie = require('./movies');
 var mongoose = require('mongoose');
+const neo4j = require('neo4j-driver');
+
+const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
+const session = driver.session();
+
+
 
 mongoose.connect("mongodb://localhost:27017/Movies", {
   useNewUrlParser: true,
