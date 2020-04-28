@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 5000;
 
 const REDIS_PORT = process.env.PORT || 6379;
 const redisclient = redis.createClient(REDIS_PORT); // redis connection 
-const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
+const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('raj', '1234')); //neo4j connection
 const session = driver.session();
 const app = express();
 // Enable express to parse body data from raw application/json data
@@ -289,7 +289,7 @@ function getAvailableOffers(req,res){
 async function addMoviestoUserlist(req,res) {
     try{
             console.log("Adding movie to wishlist using Neo4j...");
-            const searchkey = req.params.name;
+            const searchkey = req.params.email;
             const moviename = req.params.title;
             const listofmovie =[];
             console.log(searchkey);
@@ -299,13 +299,18 @@ async function addMoviestoUserlist(req,res) {
                     movietitle : moviename
                 }
             ).then(function (movies) 
-                {
-                    //console.log(movies);
+                {                    
                     movies.records.forEach(function(record){                    
                     listofmovie.push(record._fields[0]);   
                 })                
-                console.log(listofmovie);                
-                res.json(listofmovie);
+                if(listofmovie.length > 0){
+                    console.log(listofmovie);                
+                    res.json(listofmovie);
+                }
+                else{
+                    console.log("Please check if the username and movie entered are correct");
+                }
+                
             })
         .catch(function(error)
         {
@@ -319,7 +324,97 @@ async function addMoviestoUserlist(req,res) {
     }
 }
 
-app.get('/movie/:name/:title', addMoviestoUserlist); // Add movies to wishlist, Also show movies added by other users.
+async function requesttoFollow(req,res) {
+    try
+    {
+        console.log("Requesting to follow a user using Neo4j...");
+        const username1 = req.params.checkname1;
+        const username2 = req.params.checkname2;
+        const useremail = [];                                            
+        session.run('MATCH (a:us_name), (b:us_name) WHERE a.email= $name1 AND b.email = $name2 MERGE (a)-[: Follows]->(b) RETURN a' ,
+        {   name1: username1,
+            name2: username2
+        }).then(function (checkemail) 
+            {
+                checkemail.records.forEach(function(record)
+                {                    
+                    useremail.push(record._fields[0].properties.email);   
+                })                
+                if (useremail == username1)
+                {
+                    console.log(useremail[0]," Accepted your follow request.");                                    
+                }
+                else
+                {
+                    console.log("Please check the username again.");
+                }                
+            }).catch(function(error)
+            {
+                console.log(error);
+            }) 
+    }
+    catch(err)
+    {
+        console.error(err);
+        res.status(500);
+    }
+}
+
+async function followUser(req,res) {
+    try{
+            console.log("Fetch movies from wishlist of a user whom you follow using Neo4j...");
+            const username1 = req.params.checkname1;
+            const username2 = req.params.checkname2;
+            const realtionshipexists =[];
+            const movierelationship =[];
+            console.log(username1);
+            console.log(username2);
+            session.run('MATCH (p)-[r:Follows]->(n) where p.email=$name1 and n.email=$name2 Return r',
+                {   name1: username1,
+                    name2 : username2
+                }
+            ).then(function (valueofr) 
+                {
+                    valueofr.records.forEach(function(record){                    
+                    realtionshipexists.push(record._fields[0].type);   
+                })                
+                    console.log(realtionshipexists[0]); 
+                    if(realtionshipexists[0] == "Follows"){                        
+                        session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email=$name1 Return p limit(5)',
+                        {   
+                            name1: username1,                    
+                        }).then(function (valueofp) 
+                        {
+                            //console.log(movies);
+                            valueofp.records.forEach(function(record){                    
+                            movierelationship.push(record._fields[0].properties.name);   
+                        })                
+                            console.log(movierelationship);                                   
+                            res.json(movierelationship);
+                        }).catch(function(error)
+                        {
+                            console.log(error);
+                        })
+                    }
+                    else{
+                        console.log("Please check the username and follow the user to view his/her wishlist");
+                    }                                                 
+            }).catch(function(error)
+            {
+                console.log(error);
+            })                        
+    }
+    catch(err)
+    {
+        console.error(err);
+        res.status(500);
+    }
+}
+app.get('/requestingtofollow/:checkname1/:checkname2', requesttoFollow); // A user can follow other user.
+
+app.get('/username/:checkname1/:checkname2', followUser); // Once two users are following each other they can see what movies the other user has added to their wish list.
+
+app.get('/movie/:email/:title', addMoviestoUserlist); // Add movies to wishlist, Also show movies added by other users.
 
 app.get('/movie/:name',cache, getMoviebyTitle); // for searching movie by title 
 
