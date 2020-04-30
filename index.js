@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 
 const REDIS_PORT = process.env.PORT || 6379;
 const redisclient = redis.createClient(REDIS_PORT); // redis connection 
-const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('raj', '1234')); //neo4j connection
+const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
 const session = driver.session();
 const app = express();
 // Enable express to parse body data from raw application/json data
@@ -32,7 +32,7 @@ async function getMoviebyTitle(req,res) {
             const searchkey = req.params.name;
             console.log("Fetching Movie by Title "+ searchkey);
             //finding movie details from mongo
-            Movies.find({"title" : { "$regex": searchkey , "$options": "i" }}, function(err, items){
+            Movies.find({"title" : searchkey}, function(err, items){
               if (items.length !== 0 ){
                 var movie = [];
                 var z = "";
@@ -87,22 +87,29 @@ async function getMoviebyActor(req,res) {
             { actor: searchkey }
                 )
                .then(function (results) {
+                   
+                  if (results.records.length == 0){
+                    res.send("Incorrect search") 
+                    }
+                  else{
                     results.records.forEach(function(record){
                         movies.push(record._fields[0].properties.name);  // pushing the search record in array       
                         })
-                console.log("Data is fetched from Neo4j");
-                var x = searchkey ;
-                console.log(movies);
-                redisclient.setex ( x,600, JSON.stringify(movies));// storing search result in redis for cache
-                if (req.params.username){
-                key = req.params.username +  '-searched';
-                searchcount = req.params.username +  '-count'
-                redisclient.incr(searchcount ); // setting the search count for a user in redis for offers
-                movies.forEach(element => {
-                    redisclient.sadd(key,JSON.stringify(element) );//setting the search result for a particular user in redis for search history
-                       });
+                    console.log("Data is fetched from Neo4j");
+                    
+                    
+                    redisclient.setex ( searchkey,600, JSON.stringify(movies));// storing search result in redis for cache
+                    if (req.params.username){
+                        key = req.params.username +  '-searched';
+                        searchcount = req.params.username +  '-count'
+                        redisclient.incr(searchcount ); // setting the search count for a user in redis for offers
+                        movies.forEach(element => {
+                            redisclient.sadd(key,JSON.stringify(element) );//setting the search result for a particular user in redis for search history
+                        });
                     }
-                res.json(movies);
+                    res.json(movies);
+                    }
+                  
                 })
                .catch(function(error){
                 console.log(error);  
@@ -126,14 +133,15 @@ async function getMoviebyDirector(req,res) {
                     { director: searchkey }
                     )
                .then(function (results) {
+                   if(results.record.lenght > 0){
                     results.records.forEach(function(record){ 
                         console.log("record._fields[0].properties = ",record._fields[0].properties.name);
                         movies.push(record._fields[0].properties.name);     
                     })
                     console.log("Data is fetched from Neo4j");
-                    var x = searchkey ;
+                    
                     console.log(movies);
-                    redisclient.setex ( x,600, JSON.stringify(movies));// storing search result in redis for cache
+                    redisclient.setex ( searchkey,600, JSON.stringify(movies));// storing search result in redis for cache
                     if (req.params.username){
                         key = req.params.username +  '-searched';
                         searchcount = req.params.username +  '-count';
@@ -142,7 +150,11 @@ async function getMoviebyDirector(req,res) {
                             redisclient.sadd(key,JSON.stringify(element));//setting the search result for a particular user in redis for search history
                         });
                     }
-                    res.json(movies);             
+                    res.json(movies); 
+                }
+                else {
+                    res.send("Incorrect Search");
+                }            
                 })
                .catch(function(error){
                 console.log(error);  
@@ -165,14 +177,15 @@ async function getMoviebyGenre(req,res) {
                     { genre: searchkey }
                 )
                 .then(function (results) {
+                  if(results.records.length > 0){
                     results.records.forEach(function(record){
                         console.log("record._fields[0].properties = ",record._fields[0].properties.name);
                         movies.push(record._fields[0].properties.name);  
                     })
                     console.log("Data is fetched from Neo4j");
-                    var x = searchkey ;
+                   
                     console.log(movies);
-                    redisclient.setex ( x,600, JSON.stringify(movies));// storing search result in redis for cache
+                    redisclient.setex ( searchkey,600, JSON.stringify(movies));// storing search result in redis for cache
                     if (req.params.username){
                         key = req.params.username +  '-searched'
                         searchcount = req.params.username +  '-count'
@@ -182,6 +195,10 @@ async function getMoviebyGenre(req,res) {
                         });
                     }
                     res.json(movies);
+                }
+                  else{
+                      res.send("Incorrect Search");
+                  }
                 })
             .catch(function(error){
             console.log(error); 
@@ -210,9 +227,8 @@ async function getMoviebyPreference(req,res) {
                         //console.log("record._fields[0].properties = ",record._fields[0].properties.name);
                         result.push(record._fields[0].properties.name);   
                     })
-                    var x = searchkey ;
                     console.log(result);
-                    redisclient.setex ( x,600, JSON.stringify(result));// storing the result in redis for a user for cache
+                    redisclient.setex ( searchkey,600, JSON.stringify(result));// storing the result in redis for a user for cache
                     res.json(result);
                 })
                 .catch(function(error){
@@ -230,7 +246,8 @@ async function getMoviebyPreference(req,res) {
 function cache(req, res, next){
     var searchkey;
     if (!req.params.name){
-        searchkey=req.params.username //setting search key for cache search
+        searchkey=req.params.username; //setting search key for cache search
+        
         console.log(searchkey);   
     }
     else if(req.params.name) {
@@ -254,8 +271,15 @@ function cache(req, res, next){
                 
                 //console.log(JSON.parse(data));
                 result = JSON.parse(data); 
+                
+                if (req.params.username){
+
+                    searchcount =req.params.username +  '-count';
+                    redisclient.incr(searchcount );
+                }
                 res.json(result);
-            }else{
+            }
+            else{
                 next();  // calling next function in the api if no result found in redis for the search 
             }})     
     }
@@ -563,23 +587,27 @@ function getTopMovies(req,res){
     }) 
 }
 
-app.get('/movie/:email/:title', addMoviestoUserlist); // A user can add movies he likes or wishes to watch to his personal wish list.
+app.get('/movie/addtouserlist/:email/:title', addMoviestoUserlist); // A user can add movies he likes or wishes to watch to his personal wish list.
 app.get('/viewwishlist/:checkname', fetchmoviesfromlist);// Once movies are added a user look into movies added by him/her, also user will be recommended with movies added by other users.
 app.get('/fetchfromwishlist/:username', fetchmoviesredis);// If a user wishes to view his wishlist within certain time it will be fetched from redis as movie list will stored as cache over there.
 app.get('/requestingtofollow/:checkname1/:checkname2', requesttoFollow); // A user can follow other user.
 app.get('/fetchmoviesofotheruser/:checkname1/:checkname2', followUser); // Once two users are following each other they can see what movies the other user has added to their wish list.
+
+
+app.get('/:username/userpreference',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
+
+app.get('/:username/availableoffers', getAvailableOffers) // for getting the list of the offers available for the user
+
+app.get('/movie/top10',getTopMovies);//for getting top searched movies across the globe on the application 
 app.get('/movie/title/:name',cache, getMoviebyTitle); // for searching movie by title 
 app.get('/movie/actor/:name',cache, getMoviebyActor);// for searching movies by actor
 app.get('/movie/genre/:name',cache, getMoviebyGenre) ; // for searching movies by genre
 app.get('/movie/director/:name',cache, getMoviebyDirector);// for searching movies by director
-app.get('/movie/top10',getTopMovies);//for getting top searched movies across the globe on the application 
 app.get('/:username/movie/:name',cache, getMoviebyTitle);// for searching movie by title for a registered user
 app.get('/:username/actor/:name',cache, getMoviebyActor);// for searching movies by actor for a registered user
 app.get('/:username/genre/:name',cache, getMoviebyGenre); // for searching movies by genre for a registered user
 app.get('/:username/director/:name',cache, getMoviebyDirector);// for searching movies by director for a registered user
-app.get('/:username/userpreference',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
 app.get('/:username/search',getSearchBasedResutls); // for getting the movie list based on search history of the user
-app.get('/:username/availableoffers', getAvailableOffers) // for getting the list of the offers available for the user
 
 
 

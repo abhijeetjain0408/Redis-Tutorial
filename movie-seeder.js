@@ -41,6 +41,42 @@ var movies = [
         director : 'Christopher Nolan',
         genre: 'Sci-fi',
                 }),
+    new Movie({
+        title : 'The Shawshank Redemption',
+        actor : [
+            { name: 'Tim Robbins' },
+            { name: 'Morgan Freeman' }
+            ],
+        director : 'Frank Derabont',
+        genre: 'Drama',
+        }), 
+    new Movie({
+        title : 'The Godfather',
+        actor : [
+            { name: 'Al Pacino' },
+            { name: 'Marlon Brando' }
+            ],
+        director : 'Francis Ford Coppola',
+        genre: 'Crime',
+            }), 
+    new Movie({
+        title : 'The Dark Knight',
+        actor : [
+            { name: 'Christian Bale' },
+            { name: 'Heath Ledger' }
+            ],
+        director : 'Christopher Nolan',
+        genre: 'Action',
+                }),
+     new Movie({
+        title : 'Pulp Fiction',
+        actor : [
+            { name: 'John Travolta' },
+            { name: 'Uma Thurman' }
+            ],
+        director : 'Quentin Tarantino',
+        genre: 'Drama',
+                })
 ];      
 var done = 0;
 for (var i = 0; i < movies.length ; i++ ){
