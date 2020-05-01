@@ -405,15 +405,10 @@ async function fetchmoviesfromlist(req,res)
                 if(listofmovie.length > 0)
                 {
                     console.log("Your wish list contains: ",listofmovie);                                                        
-                    var x = username;         
+                    var x = username + '-wishlist';
                     
                     // Storing the result in redis for a user for cache.                                                                                            
-                    redisclient.setex(x, 100, JSON.stringify(listofmovie));
-                    key = username +  '-wishlist';
-                    listofmovie.forEach(element => 
-                    {
-                        redisclient.sadd(key, JSON.stringify(element));//setting the search result for a particular user in redis for search history
-                    });                                           
+                    redisclient.setex(x, 60, JSON.stringify(listofmovie));                                                           
                     res.json(listofmovie);                
                     
                     // Showing user what others have added in their wish list.
@@ -466,7 +461,7 @@ async function fetchmoviesfromlist(req,res)
 function fetchmoviesredis(req,res)
 {
     key = req.params.username +  '-wishlist'; // Storing requested user wish list in redis as cache.
-    redisclient.smembers( key , (err,data)=>
+    redisclient.get( key , (err,data)=>
     {
         if (err) throw err;
         if (data)
