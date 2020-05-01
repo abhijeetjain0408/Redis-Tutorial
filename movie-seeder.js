@@ -15,37 +15,61 @@ mongoose.connect("mongodb://localhost:27017/Movies", {
 
 var movies = [
     new Movie({
-        title : 'Titanic',
+        title : 'Avatar',
         actor : [
-            { name: 'Leonardo DiCaprio' },
-            { name: 'Kate Winslet' }
+            { name: 'Sam Worthington' },
+            { name: 'Zoe Saldana' }
             ],
         director : 'James Cameron',
-        genre: 'Romantic',
-        }), 
-    new Movie({
-        title : 'Inception',
-        actor : [
-            { name: 'Leonardo DiCaprio' },
-            { name: 'Cillian Murphy' }
-            ],
-        director : 'Christopher Nolan',
-        genre: 'Thriller',
-            }), 
-    new Movie({
-        title : 'Intersteller',
-        actor : [
-            { name: 'Matthew McConaughey' },
-            { name: 'Anna Hathaway' }
-            ],
-        director : 'Christopher Nolan',
         genre: 'Sci-fi',
-                }),
+        })
+    
 ];      
 var done = 0;
 for (var i = 0; i < movies.length ; i++ ){
+    title = movies[i].title;
+    director = movies[i].director;
+    genre = movies[i].genre;
+    actorlist = movies[i].actor;
     movies[i].save( function(err,resutl) {
         done++;
+        session.run('MERGE (m:movie{name:$title}) return m',{
+            title: title
+        })
+            .then(function(result){
+                session.run(' MERGE (g:genre { name : $genre}) WITH g MATCH (m:movie { name:$title}) WITH g , m MERGE (m)-[:Belong_To]->(g)',{
+                    title : title,
+                    genre : genre
+                })
+                .then (function (result){
+                    session.run(' MERGE (d:director { name : $director}) WITH d MATCH (m:movie { name:$title}) WITH d , m MERGE (d)-[:Directed]->(m)',{
+                        title : title,
+                        director : director
+                    })
+                    .then (function (result){
+                        session.run(' MATCH (m:movie) where m.name = $title UNWIND $actorlist AS actor MERGE (a:actor {name:actor.name}) with m, a MERGE (a)-[:Acted_In]->(m)',{
+                            title : title,
+                            actorlist : actorlist
+                        })
+                        .then (function (result){
+                            console.log("record created");
+                        })
+                        .catch(function(err){
+                            console.log(err);
+                        })
+                    })
+                    .catch(function(err){
+                        console.log(err);
+                    })
+                })
+                .catch(function(err){
+                    console.log(err);
+                })
+            
+            })
+            .catch(function(err){
+                console.log(err);
+            })
         if (done === movies.length) {
             exit();
         }
