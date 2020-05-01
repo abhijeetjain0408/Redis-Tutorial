@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 
 const REDIS_PORT = process.env.PORT || 6379;
 const redisclient = redis.createClient(REDIS_PORT); // redis connection 
-const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
+const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('raj', '1234')); //neo4j connection
 const session = driver.session();
 const app = express();
 // Enable express to parse body data from raw application/json data
