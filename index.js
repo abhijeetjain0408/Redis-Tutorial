@@ -1,12 +1,17 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
 const redis = require ('redis');
 const mongoose = require ('mongoose');
 const neo4j = require('neo4j-driver');
-
+const cors = require('cors');
+const app = express();
+const jwt = require('jsonwebtoken');
 const Movies = require ('./movies'); // importing movies schema
-
+app.use(cors());
+app.use(express.json());
+app.use(bodyParser.json());
 // mongo connection using mongoose library
 mongoose.connect("mongodb://localhost:27017/Movies", {
     useNewUrlParser: true,
@@ -18,29 +23,35 @@ const REDIS_PORT = process.env.PORT || 6379;
 const redisclient = redis.createClient(REDIS_PORT); // redis connection 
 const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
 const session = driver.session();
-const app = express();
+
 // Enable express to parse body data from raw application/json data
 app.use(bodyParser.json());
 // Enables express to parse body data from x-www-form-encoded data
 app.use(bodyParser.urlencoded({ extended: false }));
 
+app.use(function(req, res, next) {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+   next();
+  });
+
 app.use(express.static(path.join(__dirname, 'public')));
+
+
 
 async function getMoviebyTitle(req,res) {
         try{
             const result = [];
-            const searchkey = req.params.name;
-            console.log("Fetching Movie by Title "+ searchkey);
+            const searchkey = req.params.id;
+        
             //finding movie details from mongo
-            Movies.find({"title" : searchkey}, function(err, items){
+            Movies.find({ "_id" : searchkey} , function(err, items){
               if (items.length !== 0 ){
                 var movie = [];
                 var z = "";
                 var x = searchkey ;
-                
                 for (var i = 0 ; i < items.length ; i++){    
                   movie.push(items[i]);
-                  console.log(movie);
                   z= items[i].title;
                   if (req.params.username){
                     key = req.params.username +  '-searched';
@@ -49,16 +60,16 @@ async function getMoviebyTitle(req,res) {
                     redisclient.incr(searchcount ); // setting the search count for a user in redis for offers
                     }}
                     //getting movie recommendation with the searched movie's genre and director from neo4j
-                session.run('MATCH (m:movie) WHERE m.name = $title SET  m.searchcount= m.searchcount+ 1 WITH m OPTIONAL MATCH (m)-[:Belong_To]->()<-[:Belong_To]-(x) WITH m, COLLECT(x) AS xs OPTIONAL MATCH (m)<-[:Directed]-()-[:Directed]->(y) WITH m, xs, COLLECT(y) AS ys UNWIND (xs + ys) AS otherMovie RETURN otherMovie',
-                            { title:searchkey}
+                session.run('MATCH (m:movie) WHERE m._id = $id SET  m.searchcount= m.searchcount+ 1 WITH m OPTIONAL MATCH (m)-[:Belong_To]->()<-[:Belong_To]-(x) WITH m, COLLECT(x) AS xs OPTIONAL MATCH (m)<-[:Directed]-()-[:Directed]->(y) WITH m, xs, COLLECT(y) AS ys UNWIND (xs + ys) AS otherMovie RETURN distinct otherMovie',
+                            { id:searchkey}
                         )
                         
-                         .then(function (recommendations) {
+                        .then(function (recommendations) {
                             recommendations.records.forEach(function(record){
-                                result.push(record._fields[0].properties.name);  
+                                result.push(record._fields[0].properties);  
                             })
-                            console.log(result);
-                            var y = [movie , result];
+                            
+                            var y = movie.concat(result);
                             redisclient.setex ( x,600, JSON.stringify(y)); // storing searched movie data and related recommendations in redis
                             res.json(y);
                             })
@@ -83,7 +94,7 @@ async function getMoviebyActor(req,res) {
         console.log(searchkey);
         const movies =[];
         // Getting movie list based on actor search from Neo4j
-        session.run("Match (a:actor) where a.name = $actor match (a)-[:Acted_In]-(x) with COLLECT(x) as xs UNWIND (xs) as movies Return movies",
+        session.run("Match (a:actor) where a.name = $actor match (a)-[:Acted_In]->(x) with COLLECT(x) as xs UNWIND (xs) as movies Return movies",
             { actor: searchkey }
                 )
                .then(function (results) {
@@ -96,8 +107,6 @@ async function getMoviebyActor(req,res) {
                         movies.push(record._fields[0].properties.name);  // pushing the search record in array       
                         })
                     console.log("Data is fetched from Neo4j");
-                    
-                    
                     redisclient.setex ( searchkey,600, JSON.stringify(movies));// storing search result in redis for cache
                     if (req.params.username){
                         key = req.params.username +  '-searched';
@@ -129,11 +138,16 @@ async function getMoviebyDirector(req,res) {
         console.log(searchkey);
         const movies =[];
         // Getting movie list based on director search from Neo4j
-        session.run("Match (d:director) where d.name = $director match (d)-[:Directed]-(x) with COLLECT(x) as xs UNWIND (xs) as movies Return movies",
+        session.run("Match (d:director) where d.name = $director match (d)-[:Directed]->(x) with COLLECT(x) as xs UNWIND (xs) as movies Return movies",
                     { director: searchkey }
                     )
                .then(function (results) {
-                   if(results.record.lenght > 0){
+
+                    if (results.records.length == 0){
+                    res.send("Incorrect search") 
+                    }
+
+                    else {
                     results.records.forEach(function(record){ 
                         console.log("record._fields[0].properties = ",record._fields[0].properties.name);
                         movies.push(record._fields[0].properties.name);     
@@ -142,19 +156,17 @@ async function getMoviebyDirector(req,res) {
                     
                     console.log(movies);
                     redisclient.setex ( searchkey,600, JSON.stringify(movies));// storing search result in redis for cache
-                    if (req.params.username){
-                        key = req.params.username +  '-searched';
-                        searchcount = req.params.username +  '-count';
-                        redisclient.incr(searchcount);// setting the search count for a user in redis for offers
-                        movies.forEach(element => {
+                        if (req.params.username){
+                            key = req.params.username +  '-searched';
+                            searchcount = req.params.username +  '-count';
+                            redisclient.incr(searchcount);// setting the search count for a user in redis for offers
+                                movies.forEach(element => {
                             redisclient.sadd(key,JSON.stringify(element));//setting the search result for a particular user in redis for search history
                         });
                     }
                     res.json(movies); 
                 }
-                else {
-                    res.send("Incorrect Search");
-                }            
+                           
                 })
                .catch(function(error){
                 console.log(error);  
@@ -183,9 +195,9 @@ async function getMoviebyGenre(req,res) {
                         movies.push(record._fields[0].properties.name);  
                     })
                     console.log("Data is fetched from Neo4j");
-                   
+                    
                     console.log(movies);
-                    redisclient.setex ( searckey,600, JSON.stringify(movies));// storing search result in redis for cache
+                    redisclient.setex ( searchkey,600, JSON.stringify(movies));// storing search result in redis for cache
                     if (req.params.username){
                         key = req.params.username +  '-searched'
                         searchcount = req.params.username +  '-count'
@@ -217,7 +229,7 @@ async function getMoviebyPreference(req,res) {
         const result =[];
         console.log(searchkey);
         //Getting movie list based on the preferred genres for a user 
-        session.run('MATCH (u:username) WHERE u.name = $username MATCH (u)-[:Prefers]->()<-[:Belong_To]-(x) WITH u COLLECT(x) AS xs UNWIND (xs) AS Recommendation RETURN Recommendation',
+        session.run('MATCH (u:username) WHERE u.name = $username MATCH (u)-[:Prefers]->()<-[:Belong_To]-(x) WITH COLLECT(x) AS xs UNWIND (xs) AS Recommendation RETURN Recommendation',
                     { username: searchkey }
                     )
         
@@ -246,13 +258,10 @@ async function getMoviebyPreference(req,res) {
 function cache(req, res, next){
     var searchkey;
     if (!req.params.name){
-        searchkey=req.params.username; //setting search key for cache search
-        
-        console.log(searchkey);   
+        searchkey=req.params.username; //setting search key for cache search   
     }
     else if(req.params.name) {
         searchkey = req.params.name; //setting search key for cache search
-        console.log(searchkey);
     }
     movies = [];
     // getting data from client based on searchkey
@@ -262,18 +271,14 @@ function cache(req, res, next){
                 console.log(" Data is coming from redis"); 
                 session.run('MATCH (m:movie) WHERE m.name = $title SET  m.searchcount= m.searchcount+ 1 ',
                 {title : searchkey})
-                .then(function (result) {
-                    
-                })
-                .catch(function(error){
+                       .then(function (result) {
+                             })
+                       .catch(function(error){
                 console.log(error);
                 })
-                
                 //console.log(JSON.parse(data));
                 result = JSON.parse(data); 
-                
                 if (req.params.username){
-
                     searchcount =req.params.username +  '-count';
                     redisclient.incr(searchcount );
                 }
@@ -304,16 +309,17 @@ function getAvailableOffers(req,res){
     
     redisclient.get(key,(err,data)=>{ //getting the search count performed by the user
         if (err) throw err;
-        if(data === null){
+        if(data === null || data <5 ){
             res.send("No offers Available");
         }
-        data= parseInt(data);
-        if (data){
-            if( 5<= data <10 ){
+        else if (data){
+            
+            if( 5<= data && data <10 ){
                 offername = "free lunch coupons";
             }
-            else if( 10<= data <50){
+            else if( 10<= data && data < 50){
                 offername = "free movie tickets";
+                
             }
             // creating offer for user based on search count
             session.run("Match (u:username) where u.name = $username Merge (p:promotion {name:$offer})-[:Available_For]-> (u) on create SET p.offercode = apoc.text.random(7,'A-Za-z0-9') ",
@@ -322,7 +328,7 @@ function getAvailableOffers(req,res){
                         )
                     .then(function (result) {
                         offerlist = [];
-                        session.run(" Match ( u: username) where u.name = $username Match (u)-[:Available_For]-(x) Return x",
+                        session.run(" Match ( u: username) where u.name = $username Match (u)<-[:Available_For]-(x) Return x",
                         { username: req.params.username }
                                 )
                                 .then (function (offers){
@@ -345,265 +351,6 @@ function getAvailableOffers(req,res){
     })
 }
 
-async function addMoviestoUserlist(req,res) 
-{
-    try
-    {
-        console.log("Adding movie to wishlist using Neo4j...");
-        const searchkey = req.params.email;
-        const moviename = req.params.title;
-        const listofmovie =[];
-        console.log(searchkey);
-        console.log(moviename);         
-        session.run('MATCH (a:Movie), (b:us_name) WHERE a.name = $movietitle AND b.email = $username MERGE (a)-[r: IN_Wishlist]->(b) return a', //Create a relationship between a user and a movie if it doesn't exists.
-        {   username: searchkey,
-            movietitle : moviename
-        }).then(function (movie) 
-            {                    
-                movie.records.forEach(function(record)
-                {                    
-                    listofmovie.push(record._fields[0].properties.name);   
-                })                
-                if(listofmovie.length > 0)
-                {
-                    console.log(listofmovie[0], "  Movie has been added to your wishlist");                                    
-                    res.json(listofmovie[0]);
-                }
-                else
-                {
-                    console.log("Please check if the username and movie entered are correct or check your wish list if movie is already present");
-                }                
-            }).catch(function(error)
-            {
-                console.log(error);
-            }) 
-    }
-    catch(err)
-    {
-        console.error(err);
-        res.status(500);
-    }
-}
-
-async function fetchmoviesfromlist(req,res) 
-{
-    try
-    {
-        console.log("Fetching movie from wishlist using Neo4j...");
-        const username = req.params.checkname;            
-        const listofmovie =[];
-        const recommendedmovies = [];             
-        session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email= $name1 RETURN distinct p', // This will return movies added by user in his/her wish list.
-        {   
-            name1: username,                
-        }).then(function (movies) 
-            {                    
-                movies.records.forEach(function(record)
-                {                    
-                    listofmovie.push(record._fields[0].properties.name);   
-                })                
-                if(listofmovie.length > 0)
-                {
-                    console.log("Your wish list contains: ",listofmovie);                                                        
-                    var x = username + '-wishlist';
-                    
-                    // Storing the result in redis for a user for cache.                                                                                            
-                    redisclient.setex(x, 60, JSON.stringify(listofmovie));                                                           
-                    res.json(listofmovie);                
-                    
-                    // Showing user what others have added in their wish list.
-                    session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email <> $name1 RETURN distinct p.name as movie', 
-                    {   
-                        name1: username,                    
-                    }).then(function (valueofp) 
-                        {                           
-                            valueofp.records.forEach(function(record)
-                            {                    
-                                recommendedmovies.push(record._fields[0]);   
-                            })                
-                            console.log("Check what movies other users have added to their wishlist: ",recommendedmovies);                                                               
-                        }).catch(function(error)
-                        {
-                            console.log(error);
-                        })
-                }
-                else
-                {
-                    console.log("Please check if the username entered is correct also add movies to wishlist in order to view them"); // Incase if username is incorrect or there are no movies in user's wish list then the else block will be executed.
-                    session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email <> $name1 RETURN distinct p.name as movie', // Showing user what others have added in their wish list.
-                        {   
-                            name1: username,                    
-                        }).then(function (valueofp) 
-                        {                           
-                            valueofp.records.forEach(function(record)
-                            {                    
-                                recommendedmovies.push(record._fields[0]);   
-                            })                
-                            console.log("Check what movies other users have added to their wishlist: ",recommendedmovies);                                                               
-                        }).catch(function(error)
-                        {
-                            console.log(error);
-                        })
-                }
-                
-            }).catch(function(error)
-            {
-                console.log(error);
-            }) 
-    }
-    catch(err)
-    {
-        console.error(err);
-        res.status(500);
-    }
-}
-
-function fetchmoviesredis(req,res)
-{
-    key = req.params.username +  '-wishlist'; // Storing requested user wish list in redis as cache.
-    redisclient.get( key , (err,data)=>
-    {
-        if (err) throw err;
-        if (data)
-        {
-            res.json(data);
-        }
-        if(!data)
-        {
-            res.send('You dont have any wishlist history');
-        }
-    })
-}
-
-async function getmutualfollowers(req,res) 
-{
-    try
-    {
-        console.log("Get mutual followers using Neo4j...");
-        const username1 = req.params.checkname1;
-        const username2 = req.params.checkname2;
-        const useremail = [];                                            
-        session.run('MATCH (a:us_name) WHERE a.email = $name1 MATCH (b:us_name) WHERE b.email =$name2 match (a)--(x:us_name)--(b) return x.email', // Show mutual followers
-        {   name1: username1,
-            name2: username2
-        }).then(function (checkemail) 
-        {
-            checkemail.records.forEach(function(record)
-            {                    
-                useremail.push(record._fields[0]);   
-            })                
-            if (useremail.length >0)
-            {
-                console.log("Your mutual followers are: ", useremail);
-                res.json(useremail);                                  
-            }
-            else
-            {
-                console.log("Sorry you dont have common followers also, please check username again.");
-            }                
-        }).catch(function(error)
-        {
-            console.log(error);
-        }) 
-    }
-    catch(err)
-    {
-        console.error(err);
-        res.status(500);
-    }
-}
-
-async function requesttoFollow(req,res) 
-{
-    try
-    {
-        console.log("Requesting to follow a user using Neo4j...");
-        const username1 = req.params.checkname1;
-        const username2 = req.params.checkname2;
-        const useremail = [];                                            
-        session.run('MATCH (a:us_name), (b:us_name) WHERE a.email= $name1 AND b.email = $name2 MERGE (a)-[: Follows]->(b) RETURN a', // A user can follow other user.
-        {   name1: username1,
-            name2: username2
-        }).then(function (checkemail) 
-        {
-            checkemail.records.forEach(function(record)
-            {                    
-                useremail.push(record._fields[0].properties.email);   
-            })                
-            if (useremail == username1)
-            {
-                console.log("Accepted your follow request.");                                    
-            }
-            else
-            {
-                console.log("Please check the username again.");
-            }                
-        }).catch(function(error)
-        {
-            console.log(error);
-        }) 
-    }
-    catch(err)
-    {
-        console.error(err);
-        res.status(500);
-    }
-}
-
-async function followUser(req,res) 
-{
-    try
-    {
-        console.log("Fetch movies from wishlist of a user whom you follow using Neo4j...");
-        const username1 = req.params.checkname1;
-        const username2 = req.params.checkname2;
-        const realtionshipexists =[];
-        const movierelationship =[];
-        console.log(username1);
-        console.log(username2);
-        session.run('MATCH (p)-[r:Follows]->(n) where p.email=$name1 and n.email=$name2 Return r', // If both users follow each other only then they will be able to view each others wishlist.
-        {   name1: username1,
-            name2 : username2
-        }).then(function (valueofr)
-        {
-            valueofr.records.forEach(function(record)
-            {                    
-            realtionshipexists.push(record._fields[0].type);   
-            })                
-            console.log(realtionshipexists[0]); 
-            if(realtionshipexists[0] == "Follows")
-            {                        
-                session.run('MATCH (p)-[r:IN_Wishlist]->(n) where n.email=$name1 Return p limit(5)', // Show movies added by user in their wishlist, once verified that they are following each other.
-                {   
-                    name1: username1                    
-                }).then(function (valueofp) 
-                {                            
-                    valueofp.records.forEach(function(record)
-                    {                    
-                        movierelationship.push(record._fields[0].properties.name);   
-                    })                
-                    console.log(movierelationship);                                   
-                    res.json(movierelationship);
-                }).catch(function(error)
-                {
-                    console.log(error);
-                })
-            }
-            else
-            {
-                console.log("Please check the username and follow the user in order to view his/her wishlist");
-            }                                                 
-        }).catch(function(error)
-        {
-            console.log(error);
-        })                        
-    }
-    catch(err)
-    {
-        console.error(err);
-        res.status(500);
-    }
-}
 
 function getTopMovies(req,res){
     trending = [];
@@ -611,9 +358,8 @@ function getTopMovies(req,res){
         )
     .then(function (result) {
         result.records.forEach(function(record){
-            trending.push(record._fields[0].properties.name); //storing the result in trending array
+            trending.push(record._fields[0].properties); //storing the result in trending array
         })
-        //console.log(offers);
         res.json(trending);
     })
     .catch(function(error){
@@ -621,23 +367,73 @@ function getTopMovies(req,res){
     }) 
 }
 
-app.get('/movie/addtouserlist/:email/:title', addMoviestoUserlist); // A user can add movies he likes or wishes to watch to his personal wish list.
-app.get('/checkmutualfollowers/:checkname1/:checkname2', getmutualfollowers); // A user can Check for mutual followers before sending a follow request.
-app.get('/movie/:email/:title', addMoviestoUserlist); // A user can add movies he likes or wishes to watch to his personal wish list.
-app.get('/viewwishlist/:checkname', fetchmoviesfromlist);// Once movies are added a user look into movies added by him/her, also user will be recommended with movies added by other users.
-app.get('/fetchfromwishlist/:username', fetchmoviesredis);// If a user wishes to view his wishlist within certain time it will be fetched from redis as movie list will stored as cache over there.
-app.get('/requestingtofollow/:checkname1/:checkname2', requesttoFollow); // A user can follow other user.
-app.get('/fetchmoviesofotheruser/:checkname1/:checkname2', followUser); // Once two users are following each other they can see what movies the other user has added to their wish list.
+function getSearchResult(req,res){
+    const searchkey = req.params.key;
+    console.log("key " + req.params.key)
+    searchResult = [];
+    session.run("OPTIONAL MATCH (a:actor) where a.name contains $key with collect (a) as a UNWIND a as actor OPTIONAL MATCH (actor)-[:Acted_In]-(x) WITH COLLECT (x) as xx  UNWIND (xx) as Movies Return Movies",
+        { key : searchkey}
+    )
+    .then(function (result) {
+        result.records.forEach(function(record){
+            searchResult.push(record._fields[0].properties); //storing the result in trending array
+        })
+        session.run("OPTIONAL MATCH (d:director) where d.name contains $key with  collect (d) as d UNWIND d as director OPTIONAL MATCH (director)-[:Directed]-(q) WITH COLLECT (q) as qx UNWIND ( qx) as Search RETURN Search",
+            {key : searchkey})
+            .then(function (result) {
+                result.records.forEach(function(record){
+                    searchResult.push(record._fields[0].properties); //storing the result in trending array
+                })
+                session.run("OPTIONAL MATCH (m:movie) where m.title contains $key with m ,collect (m) as mx UNWIND (mx) as Movies Return Movies",
+                    {key:searchkey})
+                    .then(function (result) {
+                        result.records.forEach(function(record){
+                            searchResult.push(record._fields[0].properties); //storing the result in trending array
+                        })
+                        session.run("OPTIONAL MATCH (g:genre) where g.name contains $key with collect (g) as g UNWIND g as genre OPTIONAL MATCH (genre)-[:Belong_To]-(q) WITH COLLECT (q) as qx UNWIND (qx) as Movies Return Movies",
+                            {key:searchkey})
+                            .then(function (result) {
+                                result.records.forEach(function(record){
+                                    searchResult.push(record._fields[0].properties); //storing the result in trending array
+                        })
+                                var lookup = {};
+                                var items = searchResult;
+                                var result = [];
+                                
+                                for (var item, i = 0; item = items[i++];) {
+                                var title = item.title;
+                                
+                                if (!(title in lookup)) {
+                                    lookup[title] = 1;
+                                    result.push(item);
+                                    console.log(result);
+                                }
+                                }
+                                res.json(result);
+                            })
+                    .catch(function(error){
+                    console.log(error);
+                    })
 
+                    })
+                    .catch(function(error){
+                    console.log(error);
+                    }) 
+        })
+            .catch(function(error){
+            console.log(error);
+            }) 
+    })
+    .catch(function(error){
+    console.log(error);
+    }) 
+}
 
-app.get('/:username/userpreference',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
-
-app.get('/:username/availableoffers', getAvailableOffers) // for getting the list of the offers available for the user
 
 app.get('/:username/userpreference',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
 app.get('/:username/availableoffers', getAvailableOffers) // for getting the list of the offers available for the user
 app.get('/movie/top10',getTopMovies);//for getting top searched movies across the globe on the application 
-app.get('/movie/title/:name',cache, getMoviebyTitle); // for searching movie by title 
+app.get('/movie/details/:id', getMoviebyTitle); // for searching movie by title 
 app.get('/movie/actor/:name',cache, getMoviebyActor);// for searching movies by actor
 app.get('/movie/genre/:name',cache, getMoviebyGenre) ; // for searching movies by genre
 app.get('/movie/director/:name',cache, getMoviebyDirector);// for searching movies by director
@@ -646,7 +442,7 @@ app.get('/:username/actor/:name',cache, getMoviebyActor);// for searching movies
 app.get('/:username/genre/:name',cache, getMoviebyGenre); // for searching movies by genre for a registered user
 app.get('/:username/director/:name',cache, getMoviebyDirector);// for searching movies by director for a registered user
 app.get('/:username/search',getSearchBasedResutls); // for getting the movie list based on search history of the user
-
+app.get('/search/:key' , getSearchResult);
 
 
 

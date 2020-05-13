@@ -14,87 +14,43 @@ mongoose.connect("mongodb://localhost:27017/Movies", {
 
 
 var movies = [
-    new Movie({
-        title : 'Avatar',
-        actor : [
-            { name: 'Sam Worthington' },
-            { name: 'Zoe Saldana' }
-            ],
-        director : 'James Cameron',
-        genre: 'Sci-fi',
-        }),
     
-            
     new Movie({
-        title : 'The Shawshank Redemption',
+        title : 'Chris',
         actor : [
-            { name: 'Tim Robbins' },
-            { name: 'Morgan Freeman' }
-            ],
-        director : 'Frank Derabont',
-        genre: 'Drama',
-        }), 
-    new Movie({
-        title : 'The Godfather',
-        actor : [
-            { name: 'Al Pacino' },
-            { name: 'Marlon Brando' }
-            ],
-        director : 'Francis Ford Coppola',
-        genre: 'Crime',
-            }), 
-    new Movie({
-        title : 'The Dark Knight',
-        actor : [
-            { name: 'Christian Bale' },
-            { name: 'Heath Ledger' }
+            { name: 'Chris' },
+            { name: 'Barry Keoghan' }
             ],
         director : 'Christopher Nolan',
-        genre: 'Action',
-                }),
-     new Movie({
-        title : 'Pulp Fiction',
-        actor : [
-            { name: 'John Travolta' },
-            { name: 'Uma Thurman' }
-            ],
-        director : 'Quentin Tarantino',
         genre: 'Drama',
-                })
+        imageURL: 'https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.insider.com%2Fchris-hemsworth-fitness-centr-free-guided-meditations-for-kids-video-2020-4&psig=AOvVaw0PFGriQRiTELm2Dke1NO3U&ust=1589226689644000&source=images&cd=vfe&ved=0CAIQjRxqFwoTCNjAo_SIqukCFQAAAAAdAAAAABAD'
+                }),
 ];      
 var done = 0;
 for (var i = 0; i < movies.length ; i++ ){
     title = movies[i].title;
     director = movies[i].director;
     genre = movies[i].genre;
+    imageURL = movies[i].imageURL;
     actorlist = movies[i].actor;
     movies[i].save( function(err,resutl) {
         done++;
-        session.run('MERGE (m:movie{name:$title}) return m',{
-            title: title
+        session.run('MERGE (m:movie{title:$title}) ON Create Set m.searchcount = 0 Set m.MId =$id Set m.imageURL= $imageurl  with m MERGE (g:genre { name : $genre}) WITH g , m MERGE (m)-[:Belong_To]->(g) with m MERGE (d:director { name : $director}) WITH d , m MERGE (d)-[:Directed]->(m) ',{
+            title: title,
+            director : director,
+            genre : genre,
+            id: _id,
+            imageurl : imageURL
         })
-            .then(function(result){
-                session.run(' MERGE (g:genre { name : $genre}) WITH g MATCH (m:movie { name:$title}) WITH g , m MERGE (m)-[:Belong_To]->(g)',{
+               .then(function(result){
+                session.run(' MATCH (m:movie) where m.title = $title UNWIND $actorlist AS actor MERGE (a:actor {name:actor.name}) with m, a MERGE (a)-[:Acted_In]->(m)',{
                     title : title,
-                    genre : genre
+                    actorlist : actorlist
                 })
-                .then (function (result){
-                    session.run(' MERGE (d:director { name : $director}) WITH d MATCH (m:movie { name:$title}) WITH d , m MERGE (d)-[:Directed]->(m)',{
-                        title : title,
-                        director : director
-                    })
                     .then (function (result){
-                        session.run(' MATCH (m:movie) where m.name = $title UNWIND $actorlist AS actor MERGE (a:actor {name:actor.name}) with m, a MERGE (a)-[:Acted_In]->(m)',{
-                            title : title,
-                            actorlist : actorlist
-                        })
-                        .then (function (result){
-                            console.log("record created");
-                        })
-                        .catch(function(err){
-                            console.log(err);
-                        })
+                    console.log("sdkjfhdjk");
                     })
+                
                     .catch(function(err){
                         console.log(err);
                     })
@@ -104,14 +60,11 @@ for (var i = 0; i < movies.length ; i++ ){
                 })
             
             })
-            .catch(function(err){
-                console.log(err);
-            })
+            
         if (done === movies.length) {
             exit();
         }
-    });
-}
+    }
 
 function exit(){
     mongoose.disconnect();

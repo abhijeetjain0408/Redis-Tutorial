@@ -129,3 +129,25 @@ z= items[i].title;
                 
                 
                 }
+==================================================================================
+
+componentDidUpdate() {
+            let id = this.props.id;
+            fetch(`http://localhost:5000/movie/details/${id}`)
+            .then(res => {
+              return res.json();})
+            .then(movie => {
+                let recom = [];
+                for (let i = 1 ; i< movie.length ; i++){
+                    recom.push(movie[i]);
+                }
+                
+                this.setState({ movie,
+                    recom,
+                    actor : movie[0].actor,
+                    mov : movie[0],
+                     });
+                     
+            })
+            .catch(console.log('error'));
+        }

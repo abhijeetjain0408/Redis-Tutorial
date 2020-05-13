@@ -29,7 +29,7 @@ for (var i = 0; i < users.length ; i++ ){
     users[i].save( function(err,resutl) {
         done++;
         
-        session.run(' MERGE (u:username {name:$username}) return u',{
+        session.run(' MERGE (u:username {name:$username}) on create u.email = $username return u',{
             username: username
         })
             .then(function(result){
