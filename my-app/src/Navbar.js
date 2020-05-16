@@ -10,7 +10,10 @@ class Navbar extends Component
         super(props);
        
         this.onSubmit = this.onSubmit.bind(this);
-        
+        const token = localStorage.getItem('token');
+        this.state ={
+                token : token,
+        }
         
     }
     
@@ -18,21 +21,27 @@ class Navbar extends Component
         console.log("searched word " +  this.refs.key.value);
         history.push(`/searchresult/${this.refs.key.value}`);
     }
-
+    
     render() 
     {
+      const token = this.state.token;
+      let link;
+      if (token) {
+        link = <Logout />;
+      } else {
+        link = <Login />;
+      }
         return (
             
-            <nav class="navbar top navbar-dark bg-primary">
-            <div class="container-fluid">
+            <nav class="navbar navbar-dark bg-dark">
               <div class="navbar-header">
-                <a class="navbar-brand">Movies</a>
+                <a class="navbar-brand">MoviesInfoSys</a>
               </div>
-              <div class="navbar-text text-white big float-left">
+              <div class="navbar-text text-white big  ">
               <Link to={`/`}>Home</Link> 
               </div>
-              <div>
-              <form className="form-inline my-2 my-lg-0 pull-right" onSubmit= {this.onSubmit}>
+              <div >
+              <form className="form"  onSubmit= {this.onSubmit}>
                     <span className="navbar-text text-white small text-uppercase mr-3"></span>
                     <input 
                         name="search" 
@@ -46,13 +55,38 @@ class Navbar extends Component
               </div>
               <div>
               <div class="navbar-text text-white ">
-                <a href="#"><span class="glyphicon glyphicon-user"></span> Sign Up </a>
-                <a href="#"><span class="glyphicon glyphicon-log-in"></span> Login</a>
+                {link} 
               </div>
             </div>
-            </div>
+            
           </nav>
         );
     }
 }
+
+function Login(props) {
+  return (
+    <div>
+    <Link to = {`/login`} >Login</Link><span>&nbsp;</span><span>&nbsp;</span>
+    <Link to = {`/`}>Register</Link> 
+    </div>
+  );
+}
+
+function Logout(props) {
+  
+  return (
+    <div>
+      <Link to = {`/`} onClick={() => onLogout()} >Logout</Link>
+    </div>
+    
+  );
+}
+
+function onLogout () {
+  localStorage.clear(); // clear token on logout
+  window.location.reload(); // to reload homepage to update navbar
+}
+
+
 export default Navbar;

@@ -18,9 +18,14 @@ code {
   position: relative;
   
   }
+.form {
+  display: inline-flex;
+  text-align: left;
+  justify-items: flex-end;
+}
 
   .container {
-   
+  
     padding: 10px;
     text-align: left;
     position: relative;

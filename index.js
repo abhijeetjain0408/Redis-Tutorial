@@ -9,9 +9,13 @@ const cors = require('cors');
 const app = express();
 const jwt = require('jsonwebtoken');
 const Movies = require ('./movies'); // importing movies schema
+const Users = require('./user.js');
+const cookieParser = require('cookie-parser');
+const withAuth = require('./middleware');
 app.use(cors());
 app.use(express.json());
 app.use(bodyParser.json());
+app.use(cookieParser());
 // mongo connection using mongoose library
 mongoose.connect("mongodb://localhost:27017/Movies", {
     useNewUrlParser: true,
@@ -23,6 +27,7 @@ const REDIS_PORT = process.env.PORT || 6379;
 const redisclient = redis.createClient(REDIS_PORT); // redis connection 
 const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
 const session = driver.session();
+const secret = 'ABCDEF$123';
 
 // Enable express to parse body data from raw application/json data
 app.use(bodyParser.json());
@@ -430,6 +435,78 @@ function getSearchResult(req,res){
 }
 
 
+async function Signup (req, res) {
+    try{
+        const { name, email, password , genre } = req.body;
+        const user = new Users({ name, email, password , genre});
+        user.save(function(err) {
+          if (err) {
+              console.log(err);
+            res.status(500)
+              .send("Error registering new user please try again.");
+          } else {
+            res.status(200).send("Welcome to the club!");
+          }
+        });
+      }
+      catch(err){
+        console.error(err);
+        res.status(500);
+    }
+    }
+
+async function Authenticate(req, res) {
+     email = req.body.email;
+     password = req.body.password;
+    Users.findOne({ email }, function(err, user) {
+    if (err) {
+        console.error(err + "error found");
+        res.status(500)
+        .json({
+        error: 'Internal error please try again'
+        });
+    } else if (!user) {
+        res.status(401)
+        .json({
+            error: 'Incorrect email or password'
+        });
+    } else {
+        user.isCorrectPassword(password, function(err, same) {
+        if (err) {
+            res.status(500)
+            .json({
+                error: 'Internal error please try again'
+            });
+        } else if (!same) {
+            res.status(401)
+            .json({
+                error: 'Incorrect email or password'
+            });
+        } else {
+            // Issue token
+            
+            const payload = { email };
+            const token = jwt.sign(payload, secret, {
+            expiresIn: '1h'
+            });
+            res.json({
+                sucess: true,
+                err: null,
+                token
+              }) 
+            
+        }
+        });
+    }
+    });
+}
+app.get('/checkToken', withAuth, function(req, res) {
+  res.sendStatus(200);
+    });
+app.get('/secret', withAuth, function(req, res) {
+        res.send('The password is potato');
+      });
+
 app.get('/:username/userpreference',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
 app.get('/:username/availableoffers', getAvailableOffers) // for getting the list of the offers available for the user
 app.get('/movie/top10',getTopMovies);//for getting top searched movies across the globe on the application 
@@ -443,6 +520,8 @@ app.get('/:username/genre/:name',cache, getMoviebyGenre); // for searching movie
 app.get('/:username/director/:name',cache, getMoviebyDirector);// for searching movies by director for a registered user
 app.get('/:username/search',getSearchBasedResutls); // for getting the movie list based on search history of the user
 app.get('/search/:key' , getSearchResult);
+app.post ('/signup' , Signup);
+app.post('/authenticate', Authenticate);
 
 
 

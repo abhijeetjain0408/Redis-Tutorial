@@ -14,6 +14,7 @@ import { Link } from "react-router-dom";
         componentWillMount() {
           fetch('http://localhost:5000/movie/top10')
           .then(res => {
+            
               return res.json();})
           .then(movies => {
             this.setState({ movies });
@@ -31,7 +32,7 @@ import { Link } from "react-router-dom";
             {this.state.movies.map((movie => (                  
                                
                 <div class="flexbox-container" >   
-                <img src={movie.imageURL}  className="img-responsive"  height = "120" width ="120"/><br></br>
+                <img src={movie.imageURL}  className="img-responsive"  height = "150" width ="150"/><br></br>
                 <Link to={`/moviedetails/${movie._id}`}>{movie.title}</Link>                                                 
                 </div>
               

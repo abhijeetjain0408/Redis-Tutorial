@@ -57,3 +57,4 @@ for (var i = 0; i < users.length ; i++ ){
 function exit(){
     mongoose.disconnect();
 }
+
