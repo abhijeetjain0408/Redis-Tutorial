@@ -15,7 +15,8 @@ code {
   display: inline-block;
   padding: 10px;
   text-align: left;
-  position: relative;
+  position: left;
+  justify-items: flex-start;
   
   }
 .form {

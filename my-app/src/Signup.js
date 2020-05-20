@@ -1,14 +1,14 @@
 import React, { Component } from 'react';
-import decode from 'jwt-decode';
 import 'bootstrap/dist/css/bootstrap.css';
-export default class Login extends Component {
+
+export default class Signup extends Component {
   constructor(props) {
     super(props)
     this.state = {
       email : '',
       password: '',
-      isLoggedIn: 'false',
-      token : ''
+      token : '',
+      name : ''
     };
   }
   handleInputChange = (event) => {
@@ -20,10 +20,13 @@ export default class Login extends Component {
   onSubmit = (event) => {
     event.preventDefault();
     const User={
-      email:this.state.email,
-      password:this.state.password,        
+        name : this.state.name,
+        email:this.state.email,
+      password:this.state.password,    
+        
       }
-    fetch(`http://localhost:5000/authenticate`, {
+    console.log("you are here" + this.state.email + " " + this.state.password);
+    fetch(`http://localhost:5000/signup`, {
       method: 'POST',
       body: JSON.stringify(User),
       headers: {
@@ -32,21 +35,15 @@ export default class Login extends Component {
     })
     .then(res => {
       if (res.status === 200){
-        return res.json();  
-        }
+        alert("Registered. Please login."); 
+          }
       else{
-        const error = new Error(res.error);
+        const error = new Error(res.body);
         throw error;
+        
         }
       } 
     )
-    .then(token => {
-
-        this.setState(token); //setting token in state
-        localStorage.setItem('token' ,this.state.token); //setting token value in local storage
-        this.props.history.push('/'); //redirecting to homepage after successfull login
-        window.location.reload();      //reloading post login to update navbar and homepage
-    })
     .catch(err => {
       console.error(err);
       alert('Error logging in please try again');
@@ -55,7 +52,15 @@ export default class Login extends Component {
   render() {
     return (
       <form onSubmit={this.onSubmit}>
-        <h1>Login</h1>
+        <h1>Register</h1>
+        <input
+          type="name"
+          name="name"
+          placeholder="Enter name"
+          value={this.state.name}
+          onChange={this.handleInputChange}
+          required
+        /><br></br><br></br>
         <input
           type="email"
           name="email"
@@ -71,6 +76,7 @@ export default class Login extends Component {
           value={this.state.password}
           onChange={this.handleInputChange}
           required
+        
         /><br></br>
        <input type="submit" value="Submit"/>
       </form>

@@ -3,6 +3,7 @@
 import React, { Component } from 'react';
 import { Link } from "react-router-dom"; 
 import history from './history';
+import 'bootstrap/dist/css/bootstrap.css';
 
 class Navbar extends Component 
 {
@@ -68,7 +69,7 @@ function Login(props) {
   return (
     <div>
     <Link to = {`/login`} >Login</Link><span>&nbsp;</span><span>&nbsp;</span>
-    <Link to = {`/`}>Register</Link> 
+    <Link to = {`/signup`}>Register</Link> 
     </div>
   );
 }
@@ -77,7 +78,9 @@ function Logout(props) {
   
   return (
     <div>
-      <Link to = {`/`} onClick={() => onLogout()} >Logout</Link>
+      <Link to = {`/`} onClick={() => onLogout()} >Logout</Link><span>&nbsp;</span><span>&nbsp;</span>
+      <Link to = {`/profile`} >Profile</Link>
+      
     </div>
     
   );

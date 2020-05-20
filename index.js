@@ -21,12 +21,14 @@ mongoose.connect("mongodb://localhost:27017/Movies", {
     useNewUrlParser: true,
     useUnifiedTopology : true});
 
+mongoose.set('useFindAndModify', false);
 const PORT = process.env.PORT || 5000;
 
 const REDIS_PORT = process.env.PORT || 6379;
 const redisclient = redis.createClient(REDIS_PORT); // redis connection 
 const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'Abhijeet')); //neo4j connection
 const session = driver.session();
+//const tx = session.beginTransaction();
 const secret = 'ABCDEF$123';
 
 // Enable express to parse body data from raw application/json data
@@ -227,39 +229,6 @@ async function getMoviebyGenre(req,res) {
     }
 }
 
-async function getMoviebyPreference(req,res) {
-    try{
-        console.log("Fetching Movies by User Preference ..");
-        const searchkey = req.params.username;
-        const result =[];
-        console.log(searchkey);
-        //Getting movie list based on the preferred genres for a user 
-        session.run('MATCH (u:username) WHERE u.name = $username MATCH (u)-[:Prefers]->()<-[:Belong_To]-(x) WITH COLLECT(x) AS xs UNWIND (xs) AS Recommendation RETURN Recommendation',
-                    { username: searchkey }
-                    )
-        
-                .then(function (recommendations) {
-                    recommendations.records.forEach(function(record){
-                        console.log(recommendations);
-                        //console.log("record._fields[0].properties = ",record._fields[0].properties.name);
-                        result.push(record._fields[0].properties.name);   
-                    })
-                    console.log(result);
-                    redisclient.setex ( searchkey,600, JSON.stringify(result));// storing the result in redis for a user for cache
-                    res.json(result);
-                })
-                .catch(function(error){
-                console.log(error);
-                })    
-
-    }
-    catch(err){
-        console.error(err);
-        res.status(500);
-    }
-}
-
-
 function cache(req, res, next){
     var searchkey;
     if (!req.params.name){
@@ -355,22 +324,55 @@ function getAvailableOffers(req,res){
         
     })
 }
-
-
 function getTopMovies(req,res){
+    
     trending = [];
     session.run("MATCH (m:movie) RETURN m ORDER BY m.searchcount DESC LIMIT 10 ",
         )
     .then(function (result) {
         result.records.forEach(function(record){
-            trending.push(record._fields[0].properties); //storing the result in trending array
+            trending.push(record._fields[0].properties) //storing the result in trending array
+            
         })
+        console.log("trending========================================="+ trending);
         res.json(trending);
     })
     .catch(function(error){
     console.log(error);
     }) 
 }
+
+async function getMoviebyPreference(req,res) {
+    try{
+        console.log("Fetching Movies by User Preference ..");
+        const searchkey = req.email;
+        const result =[];
+        console.log(searchkey);
+        //Getting movie list based on the preferred genres for a user 
+        session.run('MATCH (u:username) WHERE u.email = $email MATCH (u)-[:Prefers]->()<-[:Belong_To]-(x) WITH COLLECT(x) AS xs UNWIND (xs) AS Recommendation RETURN Recommendation',
+                    { email: searchkey }
+                    )
+        
+                .then(function (recommendations) {
+                    recommendations.records.forEach(function(record){
+                        
+                        result.push(record._fields[0].properties);   
+                    })
+                    //redisclient.setex ( searchkey,600, JSON.stringify(result));// storing the result in redis for a user for cache
+                    console.log("result ====================="+result)
+                    res.json(result);
+                })
+                .catch(function(error){
+                console.log(error);
+                })    
+
+    }
+    catch(err){
+        console.error(err);
+        res.status(500);
+    }
+}
+
 
 function getSearchResult(req,res){
     const searchkey = req.params.key;
@@ -437,23 +439,42 @@ function getSearchResult(req,res){
 
 async function Signup (req, res) {
     try{
-        const { name, email, password , genre } = req.body;
-        const user = new Users({ name, email, password , genre});
-        user.save(function(err) {
-          if (err) {
-              console.log(err);
-            res.status(500)
-              .send("Error registering new user please try again.");
-          } else {
-            res.status(200).send("Welcome to the club!");
-          }
-        });
+          
+        const { name, email, password} = req.body;
+        const users = new Users({ name, email, password});
+        Users.findOne({email}, function (err, user){
+         if (user){
+             res.status(500).send("User already exist");
+         }
+         else{
+             users.save(function(err){
+                if (err) {
+                    console.log(err);
+                  res.status(400)
+                    .send("Error registering new user please try again.");
+                } else 
+                {
+                  console.log(user);
+                  email = req.body.email;
+                  name = req.body.name;
+                  session.run('CREATE (u:username) SET u.name = $name SET u.email= $email',{
+                      email : email,
+                      name : name
+                  })
+                  res.status(200).send("Successful Registration. Please login.");
+                }
+             })
+         }
+        }) 
       }
       catch(err){
         console.error(err);
         res.status(500);
     }
     }
+
+
+
 
 async function Authenticate(req, res) {
      email = req.body.email;
@@ -500,6 +521,54 @@ async function Authenticate(req, res) {
     }
     });
 }
+
+
+async function SaveUserDetails (req, res) {
+    try{ 
+        const genre = [];
+        const email = req.email;
+        const x = req.body;
+        for ( i= 0 ; i<x.length ; i++){
+            genre.push({"name":x[i].value});
+        }
+        Users.findOneAndUpdate({email: email},{$set:{genre:genre}},{new:true}, function (err,doc){
+        if (err){
+            res.status(400)
+             }
+         else{
+            console.log(doc);
+            session.run(' Match (u:username) where u.email= $email with u OPTIONAL MATCH (u)-[p:Prefers]-(g) Delete p return u',{
+                email : email
+            })
+                .then(function(result){
+                    console.log("1st");
+                    session.run('MATCH (u:username) where u.email = $email UNWIND $genrelist AS genre MERGE (g:genre {name:genre.name}) with u, g MERGE (u)-[:Prefers]-> (g) return u',{
+                        email : email,
+                        genrelist : genre
+                    })
+                    .then (function (result){
+                        console.log("2nd");
+                        console.log(genre);
+                        console.log("relationship created");
+                        res.json(true);
+                    })
+                    .catch(function(err){
+                        console.log(err);
+                    })
+                })
+                .catch(function(err){
+                    console.log(err);
+                })
+            
+         }
+        }) 
+      }
+      catch(err){
+        console.error(err);
+        res.status(500);
+    }
+    }
+
 app.get('/checkToken', withAuth, function(req, res) {
   res.sendStatus(200);
     });
@@ -507,21 +576,18 @@ app.get('/secret', withAuth, function(req, res) {
         res.send('The password is potato');
       });
 
-app.get('/:username/userpreference',cache, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
+app.get('/userpreference',withAuth, getMoviebyPreference); // for searching movies list based on the genre preferred by a registered user
 app.get('/:username/availableoffers', getAvailableOffers) // for getting the list of the offers available for the user
 app.get('/movie/top10',getTopMovies);//for getting top searched movies across the globe on the application 
 app.get('/movie/details/:id', getMoviebyTitle); // for searching movie by title 
 app.get('/movie/actor/:name',cache, getMoviebyActor);// for searching movies by actor
 app.get('/movie/genre/:name',cache, getMoviebyGenre) ; // for searching movies by genre
 app.get('/movie/director/:name',cache, getMoviebyDirector);// for searching movies by director
-app.get('/:username/movie/:name',cache, getMoviebyTitle);// for searching movie by title for a registered user
-app.get('/:username/actor/:name',cache, getMoviebyActor);// for searching movies by actor for a registered user
-app.get('/:username/genre/:name',cache, getMoviebyGenre); // for searching movies by genre for a registered user
-app.get('/:username/director/:name',cache, getMoviebyDirector);// for searching movies by director for a registered user
-app.get('/:username/search',getSearchBasedResutls); // for getting the movie list based on search history of the user
+app.get('/usersearchhistory',getSearchBasedResutls); // for getting the movie list based on search history of the user
 app.get('/search/:key' , getSearchResult);
 app.post ('/signup' , Signup);
 app.post('/authenticate', Authenticate);
+app.post('/saveuserdetails' ,withAuth, SaveUserDetails);
 
 
 

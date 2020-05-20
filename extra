@@ -151,3 +151,53 @@ componentDidUpdate() {
             })
             .catch(console.log('error'));
         }
+============================================================================
+<h4>Recommended For You</h4>
+            {this.state.recommovie.map((recommovie => (                                 
+                <div class="flexbox-container" >   
+                <img src={recommovie.imageURL}  className="img-responsive"  height = "150" width ="150"/><br></br>
+                <Link to={`/moviedetails/${recommovie._id}`}>{recommovie.title}</Link>                                                 
+                </div>
+              
+            )
+          ))}
+
+
+
+           if (this.state.token !== null){
+              console.log(this.state.token)
+              fetch(`http://localhost:5000/userpreference`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.state.token}`,
+              }
+                })
+                .then(res2 => {
+                  return res2.json();
+                  
+                })
+                .then(recommovies => {
+                  this.setState({ recommovies :recommovies });
+                  console.log(this.state.recommovies);
+                  
+                })
+                .catch(console.log('error'));
+              }
+
+              function Recommendation() {
+      return (
+        <div>
+        <h4>Recommended For You</h4>
+            {this.state.recommovies.map((recommovie => (                                 
+                <div class="flexbox-container" >   
+                <img src={recommovie.imageURL}  className="img-responsive"  height = "150" width ="150"/><br></br>
+                <Link to={`/moviedetails/${recommovie._id}`}>{recommovie.title}</Link>                                                 
+                </div>
+              
+            )
+          ))}
+        </div>
+      );
+    }
+   

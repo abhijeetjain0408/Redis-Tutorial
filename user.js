@@ -7,7 +7,7 @@ var  schema = new Schema ({
     name : {type : String , required : true },
     email : {type : String , required : true },
     password: {type : String , required : true},
-    genre: {type : Array , required : true },
+    genre: {type : Array },
 });
 
 schema.pre('save', function(next) {
